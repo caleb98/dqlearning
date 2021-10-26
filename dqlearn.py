@@ -1,17 +1,19 @@
 import gym
 import math
+
+import numpy as np
 import torch
 import sys
 import torch.nn as nn
 import torch.optim as optim
 import random
-import time
-import matplotlib
 import matplotlib.pyplot as plt
+import cv2
 
 from os.path import exists
 from itertools import count
 from replay_memory import ReplayMemory, Transition
+
 
 # Setup cuda device if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,7 +28,7 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 5000
 TARGET_UPDATE = 10
-NUM_EPISODES = 200
+NUM_EPISODES = 150
 LEARNING_RATE = 1e-2
 
 
@@ -53,12 +55,13 @@ def main():
 
 	plt.ion()
 
-	num_inputs = env.observation_space.shape[0]
+	# Setup input/output spaces
+	input_shape = (40, 60, 3)  # Scaled down 400x600 RGB image
 	num_actions = env.action_space.n
 
 	# Build the DQN (separate target and policy nets)
-	policy_network = create_dqn(num_inputs, num_actions)
-	target_network = create_dqn(num_inputs, num_actions)
+	policy_network = create_dqn(input_shape, num_actions)
+	target_network = create_dqn(input_shape, num_actions)
 	target_network.load_state_dict(policy_network.state_dict())
 	target_network.eval()
 	print("Using network structure:")
@@ -76,17 +79,22 @@ def main():
 	for i_episode in range(NUM_EPISODES):
 
 		# Reset for this episode
-		state = env.reset()
+		env.reset()
+		state = env.render(mode="rgb_array")
+		state = cv2.resize(state, (60, 40))
+		state = torch.tensor(state, device=device)
 		episode_reward = 0
 
 		for t in count():
 			# Take an action based on the current state
 			action = select_action(policy_network, state, step, num_actions)
-			next_state, reward, done, _ = env.step(action.item())
+			observation, reward, done, _ = env.step(action.item())
 			episode_reward += reward
 			reward = torch.tensor([reward], device=device)
 
-			env.render()
+			next_state = env.render(mode="rgb_array")
+			next_state = cv2.resize(next_state, (60, 40)).transpose(1, 2).transpose(0, 1)
+
 
 			# Store the state transition in memory
 			memory.push(
@@ -104,32 +112,6 @@ def main():
 
 			if done:
 				break
-
-		# Every 50 episodes, add in 10% random memories
-		if i_episode % 50 == 0 and not i_episode == 0:
-			num_memories = int(len(memory) * 0.1)
-			print(f"Adding {num_memories} new random memories.")
-			for t in range(num_memories):
-				# Take an action based on state (50% are random here)
-				action = select_action_highly_random(policy_network, state, step, num_actions)
-				next_state, reward, done, _ = env.step(action.item())
-				reward = torch.tensor([reward], device=device)
-
-				# Store the state transition in memory
-				memory.push(
-					torch.tensor([state], device=device),
-					torch.tensor([[action]], device=device),
-					torch.tensor([next_state], device=device) if not done else None,
-					torch.tensor([reward], device=device)
-				)
-
-				step += 1
-
-				# Move to next state
-				state = next_state
-
-				if done:
-					state = env.reset()
 
 		mem_full = len(memory) / REPLAY_MEMORY_SIZE
 		mem_empt = 1 - mem_full
@@ -163,9 +145,22 @@ def main():
 	run_model(target_network, env)
 
 
-def create_dqn(num_inputs, num_outputs):
+def conv_output_size(input_shape, kernel_size, padding=0, stride=1):
+	return np.floor((input_shape + 2 * padding - (kernel_size - 1) - 1) / stride + 1)
+
+
+def create_dqn(input_shape, num_outputs):
+	channels = input_shape[2]
+	shape = (input_shape[0], input_shape[1])
+	conv1_output_shape = conv_output_size(np.array(shape), 5)
+	conv2_output_shape = conv_output_size(conv1_output_shape, 5)
+	linear_input_size = int(conv2_output_shape[0] * conv2_output_shape[1]) * 16
+
 	return nn.Sequential(
-		nn.Linear(num_inputs, 128),
+		nn.Conv2d(channels, 8, kernel_size=5),
+		nn.Conv2d(8, 16, kernel_size=5),
+		nn.Flatten(),
+		nn.Linear(linear_input_size, 128),
 		nn.ReLU(),
 		nn.Linear(128, 64),
 		nn.ReLU(),
@@ -176,22 +171,16 @@ def create_dqn(num_inputs, num_outputs):
 
 
 def select_action(policy, state, step, actions):
-	state = torch.tensor(state, device=device)
 	sample = random.random()
 	eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1 * step / EPS_DECAY)
 
 	if sample > eps_threshold:
+		state = state.copy()
+		state_tensor = torch.tensor(state, device=device, dtype=torch.float)
+		state_tensor = state_tensor.unsqueeze(0)
 		with torch.no_grad():
-			return policy(state).max(0)[1]
-	else:
-		return torch.tensor(random.randrange(actions), device=device, dtype=torch.int16)
-
-
-def select_action_highly_random(policy, state, step, actions):
-	state = torch.tensor(state, device=device)
-	if random.random() > 0.1:
-		with torch.no_grad():
-			return policy(state).max(0)[1]
+			result = policy(state_tensor)
+			return result.max(1)[1]
 	else:
 		return torch.tensor(random.randrange(actions), device=device, dtype=torch.int16)
 
@@ -212,6 +201,9 @@ def optimize_model(memory, policy_network, target_network, optimizer):
 	state_batch = torch.cat(batch.state)
 	action_batch = torch.cat(batch.action)
 	reward_batch = torch.cat(batch.reward)
+
+	# Fix state batch structure
+	state_batch = state_batch.transpose(2, 3).transpose(1, 2)
 
 	# Computes Q(s_t, a)
 	# Find what action our policy would take in these states

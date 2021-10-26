@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.functional as F
 
+
 class DQN(nn.Module):
 	def __init__(self, device, h, w, outputs):
 		super(DQN, self).__init__()
