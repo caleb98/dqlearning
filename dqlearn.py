@@ -1,6 +1,5 @@
 import gym
 import math
-
 import numpy as np
 import torch
 import sys
@@ -9,6 +8,7 @@ import torch.optim as optim
 import random
 import matplotlib.pyplot as plt
 import cv2
+import time
 
 from os.path import exists
 from itertools import count
@@ -53,6 +53,7 @@ def main():
 	else:
 		print(f"No model found. Training new model: {model_name}")
 
+	# Setup interactive mode for matplotlib
 	plt.ion()
 
 	# Setup input/output spaces
@@ -80,9 +81,7 @@ def main():
 
 		# Reset for this episode
 		env.reset()
-		state = env.render(mode="rgb_array")
-		state = cv2.resize(state, (60, 40))
-		state = torch.tensor(state, device=device)
+		state, _ = get_screen(env.render(mode="rgb_array"))
 		episode_reward = 0
 
 		for t in count():
@@ -92,16 +91,15 @@ def main():
 			episode_reward += reward
 			reward = torch.tensor([reward], device=device)
 
-			next_state = env.render(mode="rgb_array")
-			next_state = cv2.resize(next_state, (60, 40)).transpose(1, 2).transpose(0, 1)
-
+			# Render the next state
+			next_state, _ = get_screen(env.render(mode="rgb_array"))
 
 			# Store the state transition in memory
 			memory.push(
-				torch.tensor([state], device=device),
-				torch.tensor([[action]], device=device),
-				torch.tensor([next_state], device=device) if not done else None,
-				torch.tensor([reward], device=device)
+				state,
+				torch.tensor([action], device=device),
+				next_state if not done else None,
+				reward
 			)
 
 			# Move to next state
@@ -131,7 +129,7 @@ def main():
 		plt.xlabel("Episode")
 		plt.ylabel("Reward")
 		plt.plot(reward_tracker)
-		plt.pause(0.001)
+		plt.pause(0.01)
 
 		# Take 100 episode averages and plot them
 		if len(reward_tracker) >= 100:
@@ -145,6 +143,14 @@ def main():
 	run_model(target_network, env)
 
 
+def get_screen(rgb_array):
+	rgb_array = rgb_array.copy()
+	resized = cv2.resize(rgb_array, (60, 40))
+	state = torch.tensor([resized], device=device, dtype=torch.float) / 255.0
+	state = state.transpose(2, 3).transpose(1, 2)
+	return state, resized
+
+
 def conv_output_size(input_shape, kernel_size, padding=0, stride=1):
 	return np.floor((input_shape + 2 * padding - (kernel_size - 1) - 1) / stride + 1)
 
@@ -152,13 +158,15 @@ def conv_output_size(input_shape, kernel_size, padding=0, stride=1):
 def create_dqn(input_shape, num_outputs):
 	channels = input_shape[2]
 	shape = (input_shape[0], input_shape[1])
-	conv1_output_shape = conv_output_size(np.array(shape), 5)
-	conv2_output_shape = conv_output_size(conv1_output_shape, 5)
-	linear_input_size = int(conv2_output_shape[0] * conv2_output_shape[1]) * 16
+	conv1_output_shape = conv_output_size(np.array(shape), 3, stride=2)
+	conv2_output_shape = conv_output_size(conv1_output_shape, 3, stride=2)
+	conv3_output_shape = conv_output_size(conv2_output_shape, 3, stride=2)
+	linear_input_size = int(conv3_output_shape[0] * conv3_output_shape[1]) * 8
 
 	return nn.Sequential(
-		nn.Conv2d(channels, 8, kernel_size=5),
-		nn.Conv2d(8, 16, kernel_size=5),
+		nn.Conv2d(channels, 8, kernel_size=3, stride=2),
+		nn.Conv2d(8, 8, kernel_size=3, stride=2),
+		nn.Conv2d(8, 8, kernel_size=3, stride=2),
 		nn.Flatten(),
 		nn.Linear(linear_input_size, 128),
 		nn.ReLU(),
@@ -175,12 +183,8 @@ def select_action(policy, state, step, actions):
 	eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1 * step / EPS_DECAY)
 
 	if sample > eps_threshold:
-		state = state.copy()
-		state_tensor = torch.tensor(state, device=device, dtype=torch.float)
-		state_tensor = state_tensor.unsqueeze(0)
 		with torch.no_grad():
-			result = policy(state_tensor)
-			return result.max(1)[1]
+			return policy(state).max(1)[1]
 	else:
 		return torch.tensor(random.randrange(actions), device=device, dtype=torch.int16)
 
@@ -202,12 +206,9 @@ def optimize_model(memory, policy_network, target_network, optimizer):
 	action_batch = torch.cat(batch.action)
 	reward_batch = torch.cat(batch.reward)
 
-	# Fix state batch structure
-	state_batch = state_batch.transpose(2, 3).transpose(1, 2)
-
 	# Computes Q(s_t, a)
 	# Find what action our policy would take in these states
-	state_action_values = policy_network(state_batch).gather(1, action_batch)
+	state_action_values = policy_network(state_batch).gather(0, action_batch.unsqueeze(1))
 
 	# Computes V(s_{t+1}) for all next states
 	# This finds the maximum expected value across all possible
@@ -219,7 +220,7 @@ def optimize_model(memory, policy_network, target_network, optimizer):
 
 	# Computes the expected Q-values
 	# E[r + y(max_a(Q(s', a)))]
-	expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+	expected_state_action_values = reward_batch + (next_state_values * GAMMA)
 
 	# Find the loss using Huber loss function
 	loss_fn = nn.SmoothL1Loss()
@@ -235,19 +236,29 @@ def optimize_model(memory, policy_network, target_network, optimizer):
 
 
 def run_model(model, env):
-	for i_episode in range(50):
+	for i_episode in range(5):
 		# Start over
-		state = env.reset()
+		env.reset()
+		state, _ = get_screen(env.render(mode="rgb_array"))
+
+		fourcc = cv2.VideoWriter_fourcc(*"XVID")
+		video = cv2.VideoWriter(f"video{i_episode}.avi", fourcc, 50, (60, 40))
 
 		for t in count():
-			state = torch.tensor(state, device=device)
 			with torch.no_grad():
-				action = model(state).max(0)[1]
-				state, reward, done, _ = env.step(action.item())
-				env.render()
+				# Select the action and update the environment
+				action = model(state).max(1)[1]
+				observation, reward, done, _ = env.step(action.item())
 
+				# Render the new state and convert it to pixel data
+				state, resized = get_screen(env.render(mode="rgb_array"))
+				video.write(resized)
+
+				# Break if the episode is finished
 				if done:
 					break
+
+		video.release()
 
 
 if __name__ == "__main__":
