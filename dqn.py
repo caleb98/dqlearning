@@ -2,10 +2,9 @@ import torch.nn as nn
 import torch.functional as F
 
 
-class DQN(nn.Module):
+class DeepConvolutionalNetwork(nn.Module):
 	def __init__(self, device, h, w, outputs):
-		super(DQN, self).__init__()
-		self.device = device
+		super(DeepConvolutionalNetwork, self, device=device).__init__()
 
 		# Build the convolutional layers
 		self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
@@ -22,7 +21,7 @@ class DQN(nn.Module):
 		convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
 		convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
 		linear_input_size = convw * convh * 32
-		self.head = nn.Linear(linear_input_size, outputs)
+		self.output = nn.Linear(linear_input_size, outputs)
 
 	# Runs input forward through the network
 	def forward(self, x):
@@ -30,5 +29,21 @@ class DQN(nn.Module):
 		x = F.relu(self.bn1(self.conv1(x)))
 		x = F.relu(self.bn2(self.conv2(x)))
 		x = F.relu(self.bn3(self.conv3(x)))
-		return self.head(x.view(x.size(0), -1))
+		return self.output(nn.Flatten(x))
 
+
+class DeepLinearNetwork(nn.Module):
+	def __init__(self, device, *layer_sizes):
+		super(DeepLinearNetwork, self, device=device).__init__()
+		
+		# Build the network layers
+		self.layers = []
+		for i in range(len(layer_sizes) - 1):
+			self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+		
+	def forward(self, x):
+		x = x.to(self.device)
+		for layer in self.layers:
+			x = F.relu(layer(x))
+		
+		return x
