@@ -2,6 +2,7 @@ import math
 import random
 from abc import ABC
 from abc import abstractmethod
+from typing import List
 from typing import Tuple
 
 import cv2
@@ -40,8 +41,33 @@ class Agent:
 		self.dqn_target = torch.load(filename, map_location=device)
 		self.dqn_target.eval()
 		self.update_target_network()
+
+
+def display_plots(reward_history=None, loss_history=None):
+	plt.clf()
+	if reward_history is not None:
+		ax1 = plt.subplot(1, 2, 1)
+		ax1.set_title("Training...")
+		ax1.set_xlabel("Episode")
+		ax1.set_ylabel("Reward")
+		ax1.plot(reward_history)
+		
+		if len(reward_history) >= 100:
+			reward_history_tensor = torch.tensor(reward_history)
+			means = reward_history_tensor.unfold(0, 100, 1).mean(1).view(-1)
+			means = torch.cat((torch.ones(99) * reward_history_tensor.min(0)[0], means))
+			plt.plot(means.numpy())
 	
+	if loss_history is not None:
+		ax2 = plt.subplot(1, 2, 2)
+		ax2.set_title("Losses")
+		ax2.set_xlabel("Episode")
+		ax2.set_ylabel("Loss")
+		ax2.plot(loss_history, 'r')
 	
+	plt.pause(0.01)
+
+
 class Trainer(ABC):
 	def __init__(
 		self,
@@ -174,37 +200,16 @@ class Trainer(ABC):
 			loss_history.append(np.average(np.array(step_losses)))
 			
 			if self.show_plots:
-				plt.clf()
-				ax1 = plt.subplot(1, 2, 1)
-				ax1.set_title("Training...")
-				ax1.set_xlabel("Episode")
-				ax1.set_ylabel("Reward")
-				ax1.plot(reward_history)
-				
-				if len(reward_history) >= 100:
-					reward_history_tensor = torch.tensor(reward_history)
-					means = reward_history_tensor.unfold(0, 100, 1).mean(1).view(-1)
-					means = torch.cat((torch.ones(99) * reward_history_tensor.min(0)[0], means))
-					plt.plot(means.numpy())
-				
 				loss_history_np = np.array(loss_history)
 				max_val = loss_history_np.max()
-				if training_step > self.train_batch_size:
-					print(end="")
 				loss_history_np = np.where(loss_history_np < 0, max_val, loss_history_np)
-				ax2 = plt.subplot(1, 2, 2)
-				ax2.set_title("Losses")
-				ax2.set_xlabel("Episode")
-				ax2.set_ylabel("Loss")
-				ax2.plot(loss_history_np, 'r')
-				
-				plt.pause(0.01)
+				display_plots(reward_history, loss_history_np)
 			
 		if self.show_plots:
 			plt.ioff()
 		
 		self.agent.update_target_network()
-		
+	
 	def optimize_model(self):
 		# Check that there are enough entries in replay memory to train
 		if len(self.replay_memory) < self.train_batch_size:
@@ -226,8 +231,9 @@ class Trainer(ABC):
 		q_values = self.agent.dqn(state_batch).gather(1, action_batch)
 		
 		# Find the values of the next states
-		next_state_values = torch.zeros(self.train_batch_size)
-		next_state_values[non_terminal_states] = self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
+		next_state_values = torch.zeros(self.train_batch_size, device=self.device)
+		next_state_values[non_terminal_states] = \
+			self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
 		
 		# The expected q-value: E[r + discount_factor * max[a]Q(s', a)]
 		expected_q_values = reward_batch + (self.discount_factor * next_state_values)
@@ -322,4 +328,108 @@ class VisualTrainer(Trainer):
 		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
 		scaled = cv2.resize(gray, (self.render_width, self.render_height))
 		return scaled
+
+
+class EnvironmentInterface:
+	def __init__(self, environment):
+		self.environment = environment
+	
+	@abstractmethod
+	def reset(self):
+		raise NotImplementedError
+	
+	@abstractmethod
+	def step(self, action):
+		raise NotImplementedError
+	
+	@abstractmethod
+	def get_state(self):
+		raise NotImplementedError
+
+
+class DefaultEnvironmentInterface(EnvironmentInterface):
+	def __init__(self, environment: Env, render_frames: bool = True):
+		super(DefaultEnvironmentInterface, self).__init__(environment)
+		self.state = None
+		self.render_frames = render_frames
+	
+	def reset(self):
+		self.state = self.environment.reset()
+	
+	def step(self, action):
+		state, reward, done, info = self.environment.step(action)
+		self.state = state
+		if self.render_frames:
+			self.environment.render()
+		return state, reward, done, info
+
+	def get_state(self):
+		return self.state
+
+
+class VisualEnvironmentInterface(EnvironmentInterface):
+	def __init__(self, environment: Env, render_width: int, render_height: int):
+		super(VisualEnvironmentInterface, self).__init__(environment)
+		self.state = None
+		self.render_width = render_width
+		self.render_height = render_height
+	
+	def reset(self):
+		self.environment.reset()
+		rgb_array = self.environment.render(mode="rgb_array")
+		self.state = self.__convert_rgb_array(rgb_array)
+		self.state = np.array([self.state]) / 255
+	
+	def step(self, action):
+		observation, reward, done, info = self.environment.step(action)
+		rgb_array = self.environment.render(mode="rgb_array")
+		self.state = self.__convert_rgb_array(rgb_array)
+		self.state = np.array([self.state]) / 255
+		return observation, reward, done, info
+	
+	def get_state(self):
+		return self.state
+	
+	def __convert_rgb_array(self, rgb_array):
+		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
+		scaled = cv2.resize(gray, (self.render_width, self.render_height))
+		return scaled
 		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
