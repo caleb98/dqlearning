@@ -2,7 +2,9 @@ import math
 import random
 from abc import ABC
 from abc import abstractmethod
+from typing import Tuple
 
+import cv2
 import numpy as np
 import torch
 from gym import Env
@@ -114,7 +116,7 @@ class Trainer(ABC):
 				# Take an action based on the current network state
 				sample = random.random()
 				epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) \
-						* math.exp(-1. * training_step / self.epsilon_decay)
+							* math.exp(-1. * training_step / self.epsilon_decay)
 				
 				# Use epsilon-greedy policy
 				if sample > epsilon:
@@ -133,8 +135,6 @@ class Trainer(ABC):
 				
 				# Step the simulation
 				_, reward, done, _ = self.step(action.item())
-				if done:
-					reward = -1
 				episode_reward += reward
 				
 				# Get the next state
@@ -233,8 +233,8 @@ class Trainer(ABC):
 		# Optimize the model
 		self.optimizer.zero_grad()
 		loss.backward()
-		# for param in self.agent.dqn.parameters():
-		# 	param.grad.data.clamp_(-1, 1)  # Clamp gradient to prevent the exploding gradient problem
+		for param in self.agent.dqn.parameters():
+			param.grad.data.clamp_(-1, 1)  # Clamp gradient to prevent the exploding gradient problem
 		
 		self.optimizer.step()
 		return loss.item()
@@ -273,4 +273,48 @@ class StateBasedTrainer(Trainer):
 		if self.render_frames:
 			self.environment.render()
 		return state, reward, done, info
+
+
+class VisualTrainer(Trainer):
+	def __init__(
+			self,
+			agent: Agent,
+			environment: Env,
+			render_size: Tuple[int, int],
+			train_batch_size: int = 128,
+			discount_factor: float = 0.999,
+			epsilon_start: float = 1.0,
+			epsilon_end: float = 0.05,
+			epsilon_decay: int = 500,
+			target_update: int = 100,
+			learning_rate: float = 0.01,
+			episodes: int = 250,
+			replay_memory_size: int = 10000,
+			show_plots: bool = True,
+	):
+		super().__init__(agent, environment, train_batch_size, discount_factor, epsilon_start, epsilon_end,
+						epsilon_decay, target_update, learning_rate, episodes, replay_memory_size, show_plots)
+		self.render_width = render_size[0]
+		self.render_height = render_size[1]
 	
+	def reset_environment(self):
+		self.environment.reset()
+		rgb_array = self.environment.render(mode="rgb_array")
+		self.state = self.__convert_rgb_array(rgb_array)
+		self.state = np.array([self.state]) / 255
+		
+	def get_state(self):
+		return self.state
+
+	def step(self, action):
+		observation, reward, done, info = self.environment.step(action)
+		rgb_array = self.environment.render(mode="rgb_array")
+		self.state = self.__convert_rgb_array(rgb_array)
+		self.state = np.array([self.state]) / 255
+		return observation, reward, done, info
+
+	def __convert_rgb_array(self, rgb_array):
+		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
+		scaled = cv2.resize(gray, (self.render_width, self.render_height))
+		return scaled
+		
