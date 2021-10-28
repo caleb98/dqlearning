@@ -12,8 +12,9 @@ from training import StateBasedTrainer
 
 
 def main():
-	agent_file = "trained_agent.mdl"
-	env = gym.make("CartPole-v0")
+	environment = "LunarLander-v2"
+	agent_file = f"{environment}-agent.mdl"
+	env = gym.make(environment)
 	
 	agent = None
 	
@@ -40,17 +41,18 @@ def main():
 		trainer = StateBasedTrainer(
 			agent,
 			env,
-			episodes=200,
+			episodes=300,
 			epsilon_start=0.9,
 			epsilon_end=0.05,
 			epsilon_decay=200,
 			discount_factor=0.99,
 			learning_rate=0.001,
 			train_batch_size=128,
-			replay_memory_size=100000
+			replay_memory_size=1000000,
+			render_frames=False
 		)
 		trainer.train()
-		agent.save_to_disk("trained_agent.mdl")
+		agent.save_to_disk(agent_file)
 		print("Training complete.")
 	
 	print("Running agent demonstration.")
