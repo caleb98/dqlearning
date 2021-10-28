@@ -35,8 +35,9 @@ class Agent:
 		torch.save(self.dqn, filename)
 		
 	def load_from_disk(self, filename: str):
-		self.dqn = torch.load(filename)
-		self.dqn_target = torch.load(filename)
+		device = torch.device("cuda" if torch.cuda.is_available() else  "cpu")
+		self.dqn = torch.load(filename, map_location=device)
+		self.dqn_target = torch.load(filename, map_location=device)
 		self.dqn_target.eval()
 		self.update_target_network()
 	
@@ -145,7 +146,8 @@ class Trainer(ABC):
 					torch.tensor([state], dtype=torch.float, device=self.device),
 					action,
 					torch.tensor([next_state], dtype=torch.float, device=self.device),
-					torch.tensor([reward], dtype=torch.float, device=self.device)
+					torch.tensor([reward], dtype=torch.float, device=self.device),
+					done
 				))
 				
 				# Optimize the model
@@ -210,19 +212,22 @@ class Trainer(ABC):
 		
 		# Load a random sample of transitions from memory
 		transitions = self.replay_memory.sample(self.train_batch_size)
-		state_batch, action_batch, next_state_batch, reward_batch = zip(*transitions)
+		state_batch, action_batch, next_state_batch, reward_batch, done_batch = zip(*transitions)
 		
 		# Divide into individual batches
 		state_batch = torch.cat(state_batch)
 		action_batch = torch.cat(action_batch)
 		reward_batch = torch.cat(reward_batch)
 		next_state_batch = torch.cat(next_state_batch)
+		done_batch = [done for done in done_batch]
+		non_terminal_states = [not done for done in done_batch]
 		
 		# Compute the q-values: Q(s, a)
 		q_values = self.agent.dqn(state_batch).gather(1, action_batch)
 		
 		# Find the values of the next states
-		next_state_values = self.agent.dqn_target(next_state_batch).detach().max(1)[0]
+		next_state_values = torch.zeros(self.train_batch_size)
+		next_state_values[non_terminal_states] = self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
 		
 		# The expected q-value: E[r + discount_factor * max[a]Q(s', a)]
 		expected_q_values = reward_batch + (self.discount_factor * next_state_values)
