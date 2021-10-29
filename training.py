@@ -83,6 +83,9 @@ class EnvironmentInterface(ABC):
 	@abstractmethod
 	def get_state(self):
 		raise NotImplementedError
+	
+	def get_num_actions(self):
+		return self.environment.action_space.n
 
 
 class DefaultEnvironmentInterface(EnvironmentInterface):
@@ -148,7 +151,8 @@ class Trainer:
 		learning_rate: float = 0.001,
 		episodes: int = 250,
 		replay_memory_size: int = 10000,
-		show_plots: bool = True
+		clamp_grads: bool = False,
+		show_plots: bool = True,
 	):
 		self.agent = agent
 		self.env_interface = env_interface
@@ -162,6 +166,7 @@ class Trainer:
 		self.train_batch_size = train_batch_size
 		self.discount_factor = discount_factor
 		self.target_update = target_update
+		self.clamp_grads = clamp_grads
 		
 		self.optimizer = optim.Adam(self.agent.dqn.parameters(), lr=learning_rate)
 		
@@ -209,7 +214,7 @@ class Trainer:
 						)).max(1)[1].view(1, 1)
 				else:
 					action = torch.tensor(
-						[[random.randrange(self.env_interface.environment.action_space.n)]],
+						[[random.randrange(self.env_interface.get_num_actions())]],
 						dtype=torch.long,
 						device=self.device
 					)
@@ -299,8 +304,9 @@ class Trainer:
 		# Optimize the model
 		self.optimizer.zero_grad()
 		loss.backward()
-		for param in self.agent.dqn.parameters():
-			param.grad.data.clamp_(-1, 1)  # Clamp gradient to prevent the exploding gradient problem
+		if self.clamp_grads:
+			for param in self.agent.dqn.parameters():
+				param.grad.data.clamp_(-1, 1)  # Clamp gradient to prevent the exploding gradient problem
 		
 		self.optimizer.step()
 		return loss.item()
