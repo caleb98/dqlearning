@@ -7,13 +7,13 @@ import torch.cuda
 
 import networks
 from training import Agent
-from training import VisualEnvironmentInterface
+from training import SequentialVisualInterface
 from training import Trainer
 
 
 def main():
 	environment = "LunarLander-v2"
-	agent_file = f"{environment}-vis-agent.mdl"
+	agent_file = f"{environment}-lstm-agent.mdl"
 	env = gym.make(environment)
 	
 	# Try to load agent from disk
@@ -28,27 +28,27 @@ def main():
 		height = 50
 		num_actions = env.action_space.n
 		
-		network = networks.ConvolutionalNetwork(1, width, height, num_actions)
-		network_target = networks.ConvolutionalNetwork(1, width, height, num_actions)
+		network = networks.RecurrentNetwork(1, width, height, num_actions)
+		network_target = networks.RecurrentNetwork(1, width, height, num_actions)
 		network_target.eval()
 		
 		print("Network:")
 		print(network)
 		
 		agent = Agent(network, network_target)
-		env_interface = VisualEnvironmentInterface(env, width, height)
+		env_interface = SequentialVisualInterface(env, width, height, 5)
 		
 		trainer = Trainer(
 			agent,
 			env_interface,
-			episodes=1000,
+			episodes=10000,
 			epsilon_start=1.0,
-			epsilon_end=0.05,
-			epsilon_decay=150,
-			discount_factor=0.999,
-			learning_rate=0.001,
-			target_update=1000,
-			train_batch_size=256,
+			epsilon_end=0.01,
+			epsilon_decay=50000,
+			discount_factor=0.99,
+			learning_rate=0.0001,
+			target_update=10000,
+			train_batch_size=1024,
 			replay_memory_size=1000000
 		)
 		trainer.train()

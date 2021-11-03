@@ -135,7 +135,50 @@ class VisualEnvironmentInterface(EnvironmentInterface):
 		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
 		scaled = cv2.resize(gray, (self.render_width, self.render_height))
 		return scaled
+
+
+class SequentialVisualInterface(EnvironmentInterface):
+	def __init__(self, environment: Env, render_width: int, render_height: int, sequence_length: int):
+		super(SequentialVisualInterface, self).__init__(environment)
+		self.render_width = render_width
+		self.render_height = render_height
+		self.sequence_length = sequence_length
+		self.state = None
+		self.__reset_state()
 	
+	def reset(self):
+		self.environment.reset()
+		self.__reset_state()
+		rgb_array = self.environment.render(mode="rgb_array")
+		grayscale = self.__convert_rgb_array(rgb_array)
+		self.__push_state(np.array([grayscale]) / 255)
+	
+	def step(self, action):
+		observation, reward, done, info = self.environment.step(action)
+		rgb_array = self.environment.render(mode="rgb_array")
+		grayscale = self.__convert_rgb_array(rgb_array)
+		self.__push_state(np.array([grayscale]) / 255)
+		return observation, reward, done, info
+	
+	def get_state(self):
+		return self.state
+	
+	def __convert_rgb_array(self, rgb_array):
+		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
+		scaled = cv2.resize(gray, (self.render_width, self.render_height))
+		return scaled
+
+	def __reset_state(self):
+		self.state = np.zeros((1, self.sequence_length, self.render_height, self.render_width))
+
+	def __push_state(self, single_state):
+		# shift back old states
+		for i in range(self.sequence_length - 1):
+			self.state[0, i] = self.state[0, i + 1]
+		
+		# add new state
+		self.state[0, self.sequence_length - 1] = single_state
+		
 
 class Trainer:
 	def __init__(
@@ -151,7 +194,7 @@ class Trainer:
 		learning_rate: float = 0.001,
 		episodes: int = 250,
 		replay_memory_size: int = 10000,
-		clamp_grads: bool = False,
+		clamp_grads: bool = True,
 		show_plots: bool = True,
 	):
 		self.agent = agent

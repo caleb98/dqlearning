@@ -41,12 +41,13 @@ def main():
 		trainer = Trainer(
 			agent,
 			env_interface,
-			episodes=300,
-			epsilon_start=0.9,
-			epsilon_end=0.05,
-			epsilon_decay=200,
-			discount_factor=0.999,
-			learning_rate=0.01,
+			episodes=1000,
+			epsilon_start=1.0,
+			epsilon_end=0.01,
+			epsilon_decay=10000,
+			discount_factor=0.99,
+			learning_rate=0.0001,
+			target_update=500,
 			train_batch_size=128,
 			replay_memory_size=1000000
 		)
