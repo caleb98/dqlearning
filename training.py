@@ -335,8 +335,16 @@ class Trainer:
 		
 		# Find the values of the next states
 		next_state_values = torch.zeros(self.train_batch_size, device=self.device)
+		
+		# This line was used for the non double dqn approach
+		# next_state_values[non_terminal_states] = \
+		# 	self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
+		
+		# This code uses the double dqn approach to compute expected state values
+		# Find the actions our network would take in the new state
+		next_state_actions = self.agent.dqn(next_state_batch).max(1)[1].unsqueeze(1)
 		next_state_values[non_terminal_states] = \
-			self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
+			self.agent.dqn_target(next_state_batch).gather(1, next_state_actions)[non_terminal_states].squeeze(1)
 		
 		# The expected q-value: E[r + discount_factor * max[a]Q(s', a)]
 		expected_q_values = reward_batch + (self.discount_factor * next_state_values)

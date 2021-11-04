@@ -80,7 +80,7 @@ def main():
 				break
 			
 			end = time.time()
-			time.sleep(max(0, 0.02 - (end - start)))
+			time.sleep(max(0.0, 0.02 - (end - start)))
 		
 		video.release()
 	

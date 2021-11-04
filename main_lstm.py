@@ -44,11 +44,11 @@ def main():
 			episodes=10000,
 			epsilon_start=1.0,
 			epsilon_end=0.01,
-			epsilon_decay=50000,
+			epsilon_decay=10000,
 			discount_factor=0.99,
 			learning_rate=0.0001,
-			target_update=10000,
-			train_batch_size=1024,
+			target_update=500,
+			train_batch_size=128,
 			replay_memory_size=1000000
 		)
 		trainer.train()
