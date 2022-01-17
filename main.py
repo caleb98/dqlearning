@@ -25,7 +25,9 @@ def main():
 	# Create and train agent
 	else:
 		print("No agent found. Creating new agent and training.")
-		num_inputs = env.observation_space.shape[0]
+		num_inputs = 1
+		for i in env.observation_space.shape:
+			num_inputs *= i
 		num_actions = env.action_space.n
 	
 		network = networks.LinearNetwork(num_inputs, num_actions)
@@ -36,12 +38,12 @@ def main():
 		print(network)
 	
 		agent = Agent(network, network_target)
-		env_interface = DefaultEnvironmentInterface(env)
+		env_interface = DefaultEnvironmentInterface(env, render_frames=False)
 		
 		trainer = Trainer(
 			agent,
 			env_interface,
-			episodes=1000,
+			episodes=500,
 			epsilon_start=1.0,
 			epsilon_end=0.01,
 			epsilon_decay=10000,
