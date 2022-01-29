@@ -1,20 +1,19 @@
 import math
 import random
-from abc import ABC
-from abc import abstractmethod
-from typing import List
-from typing import Tuple
+from enum import Enum
+from typing import Callable
 
-import cv2
 import numpy as np
 import torch
 from gym import Env
 from matplotlib import pyplot as plt
-from torch import nn
 from torch import optim
 from torch.nn import functional as F
 
-from util import ReplayMemory
+from memory import PERMemory
+from memory import ReplayMemory
+
+TRAIN_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def display_plots(reward_history=None, loss_history=None):
@@ -43,19 +42,19 @@ def display_plots(reward_history=None, loss_history=None):
 
 
 class Agent:
-	def __init__(self, network: nn.Module = None, target: nn.Module = None, filename: str = None):
+	def __init__(self, network_generator: Callable = None, filename: str = None):
 		if filename is None:
-			self.dqn = network
-			self.dqn_target = target
-			self.update_target_network()
+			self.network_generator = network_generator
+			self.dqn = network_generator()
 		else:
 			self.load_from_disk(filename)
 	
 	def select_action(self, state):
-		return self.dqn(state).max(1)[1]
-
-	def update_target_network(self):
-		self.dqn_target.load_state_dict(self.dqn.state_dict())
+		return self.dqn(torch.tensor(
+			[state],
+			dtype=torch.float,
+			device=TRAIN_DEVICE
+		)).max(1)[1].view(1, 1)
 	
 	def save_to_disk(self, filename: str):
 		torch.save(self.dqn, filename)
@@ -63,34 +62,11 @@ class Agent:
 	def load_from_disk(self, filename: str):
 		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		self.dqn = torch.load(filename, map_location=device)
-		self.dqn_target = torch.load(filename, map_location=device)
-		self.dqn_target.eval()
-		self.update_target_network()
 
 
-class EnvironmentInterface(ABC):
-	def __init__(self, environment):
-		self.environment = environment
-	
-	@abstractmethod
-	def reset(self):
-		raise NotImplementedError
-	
-	@abstractmethod
-	def step(self, action):
-		raise NotImplementedError
-	
-	@abstractmethod
-	def get_state(self):
-		raise NotImplementedError
-	
-	def get_num_actions(self):
-		return self.environment.action_space.n
-
-
-class DefaultEnvironmentInterface(EnvironmentInterface):
+class EnvironmentInterface:
 	def __init__(self, environment: Env, render_frames: bool = True):
-		super(DefaultEnvironmentInterface, self).__init__(environment)
+		self.environment = environment
 		self.state = None
 		self.render_frames = render_frames
 	
@@ -106,79 +82,16 @@ class DefaultEnvironmentInterface(EnvironmentInterface):
 	
 	def get_state(self):
 		return self.state
+	
+	def get_num_actions(self):
+		return self.environment.action_space.n
 
 
-class VisualEnvironmentInterface(EnvironmentInterface):
-	def __init__(self, environment: Env, render_width: int, render_height: int):
-		super(VisualEnvironmentInterface, self).__init__(environment)
-		self.state = None
-		self.render_width = render_width
-		self.render_height = render_height
-	
-	def reset(self):
-		self.environment.reset()
-		rgb_array = self.environment.render(mode="rgb_array")
-		self.state = self.__convert_rgb_array(rgb_array)
-		self.state = np.array([self.state]) / 255
-	
-	def step(self, action):
-		observation, reward, done, info = self.environment.step(action)
-		rgb_array = self.environment.render(mode="rgb_array")
-		self.state = self.__convert_rgb_array(rgb_array)
-		self.state = np.array([self.state]) / 255
-		return observation, reward, done, info
-	
-	def get_state(self):
-		return self.state
-	
-	def __convert_rgb_array(self, rgb_array):
-		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
-		scaled = cv2.resize(gray, (self.render_width, self.render_height))
-		return scaled
+class QValueApproximationMethod(Enum):
+	STANDARD = 1
+	DOUBLE_Q_LEARNING = 2
+	MULTI_Q_LEARNING = 3
 
-
-class SequentialVisualInterface(EnvironmentInterface):
-	def __init__(self, environment: Env, render_width: int, render_height: int, sequence_length: int):
-		super(SequentialVisualInterface, self).__init__(environment)
-		self.render_width = render_width
-		self.render_height = render_height
-		self.sequence_length = sequence_length
-		self.state = None
-		self.__reset_state()
-	
-	def reset(self):
-		self.environment.reset()
-		self.__reset_state()
-		rgb_array = self.environment.render(mode="rgb_array")
-		grayscale = self.__convert_rgb_array(rgb_array)
-		self.__push_state(np.array([grayscale]) / 255)
-	
-	def step(self, action):
-		observation, reward, done, info = self.environment.step(action)
-		rgb_array = self.environment.render(mode="rgb_array")
-		grayscale = self.__convert_rgb_array(rgb_array)
-		self.__push_state(np.array([grayscale]) / 255)
-		return observation, reward, done, info
-	
-	def get_state(self):
-		return self.state
-	
-	def __convert_rgb_array(self, rgb_array):
-		gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
-		scaled = cv2.resize(gray, (self.render_width, self.render_height))
-		return scaled
-
-	def __reset_state(self):
-		self.state = np.zeros((1, self.sequence_length, self.render_height, self.render_width))
-
-	def __push_state(self, single_state):
-		# shift back old states
-		for i in range(self.sequence_length - 1):
-			self.state[0, i] = self.state[0, i + 1]
-		
-		# add new state
-		self.state[0, self.sequence_length - 1] = single_state
-		
 
 class Trainer:
 	def __init__(
@@ -192,8 +105,11 @@ class Trainer:
 		epsilon_decay: int = 500,
 		target_update: int = 100,
 		learning_rate: float = 0.001,
-		episodes: int = 250,
+		episodes: int = 500,
 		replay_memory_size: int = 10000,
+		qvalue_approx_method: QValueApproximationMethod = QValueApproximationMethod.STANDARD,
+		multi_q_learn_networks: int = 2,
+		use_per: bool = False,
 		clamp_grads: bool = True,
 		show_plots: bool = True,
 	):
@@ -204,12 +120,17 @@ class Trainer:
 		self.epsilon_end = epsilon_end
 		self.epsilon_decay = epsilon_decay
 		
-		self.replay_memory = ReplayMemory(replay_memory_size)
 		self.train_episodes = episodes
 		self.train_batch_size = train_batch_size
 		self.discount_factor = discount_factor
 		self.target_update = target_update
 		self.clamp_grads = clamp_grads
+		self.qvalue_approx_method = qvalue_approx_method
+		self.use_per = use_per
+		if use_per:
+			self.replay_memory = PERMemory(replay_memory_size, episodes)
+		else:
+			self.replay_memory = ReplayMemory(replay_memory_size)
 		
 		self.optimizer = optim.Adam(self.agent.dqn.parameters(), lr=learning_rate)
 		
@@ -219,8 +140,27 @@ class Trainer:
 		
 		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		self.agent.dqn.to(self.device)
-		self.agent.dqn_target.to(self.device)
-	
+		
+		# If the q-value approximation method uses multi-q-learning, go ahead and create
+		# the extra networks now
+		if self.qvalue_approx_method == QValueApproximationMethod.MULTI_Q_LEARNING:
+			self.mql_networks = []
+			self.active_network_index = 0
+			for i in range(multi_q_learn_networks):
+				self.mql_networks.append(self.agent.network_generator())
+		
+		# Otherwise, just create the target dqn
+		else:
+			self.target = self.agent.network_generator()
+			pass
+		
+	def select_random_action(self):
+		return torch.tensor(
+			[[random.randrange(self.env_interface.get_num_actions())]],
+			dtype=torch.long,
+			device=TRAIN_DEVICE
+		)
+			
 	def train(self):
 		# Create replay memory and other data for training
 		training_step = 0
@@ -242,6 +182,12 @@ class Trainer:
 			# Run the episode
 			while True:
 				
+				# For multi q-learning, we need to swap the "active" network
+				# for each step
+				if self.qvalue_approx_method == QValueApproximationMethod.MULTI_Q_LEARNING:
+					self.active_network_index = random.randrange(len(self.mql_networks))
+					self.agent.dqn = self.mql_networks[self.active_network_index]
+				
 				# Take an action based on the current network state
 				sample = random.random()
 				epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) \
@@ -250,17 +196,9 @@ class Trainer:
 				# Use epsilon-greedy policy
 				if sample > epsilon:
 					with torch.no_grad():
-						action = self.agent.dqn(torch.tensor(
-							[state],
-							dtype=torch.float,
-							device=self.device
-						)).max(1)[1].view(1, 1)
+						action = self.agent.select_action(state)
 				else:
-					action = torch.tensor(
-						[[random.randrange(self.env_interface.get_num_actions())]],
-						dtype=torch.long,
-						device=self.device
-					)
+					action = self.select_random_action()
 				
 				# Step the simulation
 				_, reward, done, _ = self.env_interface.step(action.item())
@@ -287,16 +225,23 @@ class Trainer:
 				training_step += 1
 				
 				# Check if the target network should be updated
-				if training_step % self.target_update == 0:
+				if self.qvalue_approx_method != QValueApproximationMethod.MULTI_Q_LEARNING and \
+						training_step % self.target_update == 0:
 					print("Updating target network.")
-					self.agent.update_target_network()
+					self.update_target_network()
 				
 				# Check episode finished
 				if done:
 					break
 		
+			# Update PER beta if necessary
+			if self.use_per:
+				self.replay_memory.step_episode()
+		
+			# Print training information
 			print(f"Episode {episode} "
 				f"(e = {epsilon:0.2f}) "
+				f"{f'(b = {self.replay_memory.beta:0.2f}) ' if self.use_per else ''}"
 				f"[Mem: {float(len(self.replay_memory)) / self.replay_memory.max_size() * 100:0.2f}%] ")
 			
 			reward_history.append(episode_reward)
@@ -310,8 +255,10 @@ class Trainer:
 			
 		if self.show_plots:
 			plt.ioff()
+			plt.show()  # Use show here to block until the user closes it
 		
-		self.agent.update_target_network()
+	def update_target_network(self):
+		self.target.load_state_dict(self.agent.dqn.state_dict())
 	
 	def optimize_model(self):
 		# Check that there are enough entries in replay memory to train
@@ -319,7 +266,16 @@ class Trainer:
 			return -1
 		
 		# Load a random sample of transitions from memory
-		transitions = self.replay_memory.sample(self.train_batch_size)
+		if self.use_per:
+			transitions, indexes, is_weights = self.replay_memory.sample(self.train_batch_size)
+			is_weights = torch.tensor(
+				is_weights,
+				dtype=torch.int64,
+				device=TRAIN_DEVICE
+			)
+		else:
+			transitions = self.replay_memory.sample(self.train_batch_size)
+			
 		state_batch, action_batch, next_state_batch, reward_batch, done_batch = zip(*transitions)
 		
 		# Divide into individual batches
@@ -336,21 +292,59 @@ class Trainer:
 		# Find the values of the next states
 		next_state_values = torch.zeros(self.train_batch_size, device=self.device)
 		
-		# This line was used for the non double dqn approach
-		# next_state_values[non_terminal_states] = \
-		# 	self.agent.dqn_target(next_state_batch).detach().max(1)[0][non_terminal_states]
+		# Standard Q value approximation
+		if self.qvalue_approx_method == QValueApproximationMethod.STANDARD:
+			next_state_values[non_terminal_states] = \
+				self.target(next_state_batch).detach().max(1)[0][non_terminal_states]
 		
+		# Double Q Learning State value approximation
 		# This code uses the double dqn approach to compute expected state values
 		# Find the actions our network would take in the new state
-		next_state_actions = self.agent.dqn(next_state_batch).max(1)[1].unsqueeze(1)
-		next_state_values[non_terminal_states] = \
-			self.agent.dqn_target(next_state_batch).detach().gather(1, next_state_actions)[non_terminal_states].squeeze(1)
+		elif self.qvalue_approx_method == QValueApproximationMethod.DOUBLE_Q_LEARNING:
+			next_state_actions = self.agent.dqn(next_state_batch).max(1)[1].unsqueeze(1)
+			next_state_values[non_terminal_states] = \
+				self.target(next_state_batch).detach().gather(1, next_state_actions)[non_terminal_states].squeeze(1)
+		
+		# Multi Q Learning State value approximation
+		elif self.qvalue_approx_method == QValueApproximationMethod.MULTI_Q_LEARNING:
+			next_state_actions = self.agent.dqn(next_state_batch).max(1)[1].unsqueeze(1)
+			
+			# Sum the values provided by all other networks.
+			for i in range(len(self.mql_networks)):
+				if i != self.active_network_index:
+					self.mql_networks[i].eval()
+					
+					with torch.no_grad():
+						next_state_values[non_terminal_states] = next_state_values[non_terminal_states].add(
+							self.mql_networks[i](next_state_batch).detach().gather(1, next_state_actions)[
+								non_terminal_states].squeeze(1)
+						)
+					
+					self.mql_networks[i].train()
+			
+			# Take the average
+			next_state_values = next_state_values.div(len(self.mql_networks) - 1)
+		
+		# Invalid value
+		else:
+			pass
 		
 		# The expected q-value: E[r + discount_factor * max[a]Q(s', a)]
 		expected_q_values = reward_batch + (self.discount_factor * next_state_values)
 		
+		# For PER, update the memory priorities
+		if self.use_per:
+			errors = torch.abs(q_values - expected_q_values.unsqueeze(1)).detach().cpu().numpy()
+			for i in range(self.train_batch_size):
+				index = indexes[i]
+				self.replay_memory.update(index, errors[i])
+		
 		# Find loss using Huber Loss (smooth l1 loss is Huber loss with delta = 1)
 		loss = F.smooth_l1_loss(q_values, expected_q_values.unsqueeze(1))
+		
+		# For PER, scale based on the importance-sampling weights
+		if self.use_per:
+			loss = (is_weights * loss).mean()
 		
 		# Optimize the model
 		self.optimizer.zero_grad()
@@ -360,4 +354,6 @@ class Trainer:
 				param.grad.data.clamp_(-1, 1)  # Clamp gradient to prevent the exploding gradient problem
 		
 		self.optimizer.step()
+		
 		return loss.item()
+	

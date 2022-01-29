@@ -6,9 +6,9 @@ import gym
 import torch.cuda
 
 import networks
-
 from training import Agent
-from training import DefaultEnvironmentInterface
+from training import EnvironmentInterface
+from training import QValueApproximationMethod
 from training import Trainer
 
 
@@ -30,28 +30,29 @@ def main():
 			num_inputs *= i
 		num_actions = env.action_space.n
 	
-		network = networks.LinearNetwork(num_inputs, num_actions)
-		network_target = networks.LinearNetwork(num_inputs, num_actions)
-		network_target.eval()
-		
-		print("Network:")
-		print(network)
+		def network_generator():
+			network = networks.LinearNetwork(num_inputs, num_actions)
+			network.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+			return network
 	
-		agent = Agent(network, network_target)
-		env_interface = DefaultEnvironmentInterface(env, render_frames=False)
+		agent = Agent(network_generator)
+		env_interface = EnvironmentInterface(env, render_frames=True)
 		
 		trainer = Trainer(
 			agent,
 			env_interface,
-			episodes=500,
-			epsilon_start=1.0,
-			epsilon_end=0.01,
-			epsilon_decay=10000,
-			discount_factor=0.99,
-			learning_rate=0.0001,
+			episodes=250,
+			epsilon_start=1.0,  # 1.0 is good
+			epsilon_end=0.01,  # 0.01
+			epsilon_decay=10000,  # ~10,000 good for standard/double dqn
+			discount_factor=0.99,  # Tune depending on task
+			learning_rate=0.001,  # ~0.0001 good for standard/double dqn. Increase for PER
 			target_update=500,
 			train_batch_size=128,
-			replay_memory_size=1000000
+			replay_memory_size=250000,
+			qvalue_approx_method=QValueApproximationMethod.DOUBLE_Q_LEARNING,
+			use_per=True,
+			multi_q_learn_networks=8
 		)
 		trainer.train()
 		agent.save_to_disk(agent_file)
@@ -89,7 +90,5 @@ def main():
 	env.close()
 			
 
-
 if __name__ == "__main__":
 	main()
-
