@@ -26,8 +26,8 @@ class PERMemory:
 		self.memory = SumTree(capacity)
 		self.alpha = alpha
 		self.beta = beta_start
+		self.beta_increment = (1 - beta_start) / train_episodes
 		self.e = 0.01
-		self.train_episodes = train_episodes
 		
 	def push(self, transition):
 		value = self.memory.get_max_leaf_value()
@@ -36,7 +36,7 @@ class PERMemory:
 		self.memory.add(transition, value)
 	
 	def step_episode(self):
-		self.beta = min(1.0, self.beta + (1.0 / self.train_episodes))
+		self.beta = min(1.0, self.beta + self.beta_increment)
 	
 	def sample(self, batch_size):
 		segment_size = self.memory.get_total() / batch_size
