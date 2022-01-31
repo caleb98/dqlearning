@@ -46,11 +46,11 @@ def main():
 			epsilon_end=0.01,  # 0.01
 			epsilon_decay=10000,  # ~10,000 good for standard/double dqn
 			discount_factor=0.99,  # Tune depending on task
-			learning_rate=0.0001,  # ~0.0001 good for standard/double dqn. Increase for PER
+			learning_rate=0.001,  # ~0.0001 good for standard/double dqn
 			target_update=500,
 			train_batch_size=128,
 			replay_memory_size=250000,
-			qvalue_approx_method=QValueApproximationMethod.DOUBLE_Q_LEARNING,
+			qvalue_approx_method=QValueApproximationMethod.MULTI_Q_LEARNING,
 			use_per=True,
 			multi_q_learn_networks=8
 		)

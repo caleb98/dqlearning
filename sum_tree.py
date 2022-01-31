@@ -38,7 +38,7 @@ class SumTree:
 			# condition here, and if that *is* the case, we nudge the value
 			# back into the proper range.
 			if select_value > self.values[left] + self.values[right]:
-				select_value = (self.values[left] + self.values[right]) * 0.99
+				select_value = (self.values[left] + self.values[right]) * 0.999
 			
 			# If less than left node, move left
 			if select_value <= self.values[left]:

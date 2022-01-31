@@ -27,7 +27,7 @@ class PERMemory:
 		self.alpha = alpha
 		self.beta = beta_start
 		self.beta_increment = (1 - beta_start) / train_episodes
-		self.e = 0.01
+		self.e = 0.0001
 		
 	def push(self, transition):
 		value = self.memory.get_max_leaf_value()

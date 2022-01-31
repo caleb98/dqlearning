@@ -145,9 +145,12 @@ class Trainer:
 		# the extra networks now
 		if self.qvalue_approx_method == QValueApproximationMethod.MULTI_Q_LEARNING:
 			self.mql_networks = []
+			self.mql_optimizers = []
 			self.active_network_index = 0
 			for i in range(multi_q_learn_networks):
-				self.mql_networks.append(self.agent.network_generator())
+				network = self.agent.network_generator()
+				self.mql_networks.append(network)
+				self.mql_optimizers.append(optim.Adam(network.parameters(), lr=learning_rate))
 		
 		# Otherwise, just create the target dqn
 		else:
@@ -187,6 +190,7 @@ class Trainer:
 				if self.qvalue_approx_method == QValueApproximationMethod.MULTI_Q_LEARNING:
 					self.active_network_index = random.randrange(len(self.mql_networks))
 					self.agent.dqn = self.mql_networks[self.active_network_index]
+					self.optimizer = self.mql_optimizers[self.active_network_index]
 				
 				# Take an action based on the current network state
 				sample = random.random()
@@ -235,8 +239,8 @@ class Trainer:
 					break
 		
 			# Update PER beta if necessary
-			if self.use_per:
-				self.replay_memory.step_episode()
+			# if self.use_per:
+			# 	self.replay_memory.step_episode()
 		
 			# Print training information
 			print(f"Episode {episode} "
