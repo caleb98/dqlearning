@@ -33,6 +33,60 @@ def main():
 		network.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 		return network
 	
+	test_parameters_matrix = [
+		# Approximation Method,              PER,   Learning Rate   Multi Q Networks
+		[QValueApproximationMethod.STANDARD, False, 0.1, 			0],
+		[QValueApproximationMethod.STANDARD, False, 0.01, 			0],
+		[QValueApproximationMethod.STANDARD, False, 0.001, 			0],
+		[QValueApproximationMethod.STANDARD, False, 0.0001, 		0],
+		[QValueApproximationMethod.STANDARD, True,  0.1, 			0],
+		[QValueApproximationMethod.STANDARD, True,  0.01, 			0],
+		[QValueApproximationMethod.STANDARD, True,  0.001, 			0],
+		[QValueApproximationMethod.STANDARD, True,  0.0001, 		0],
+		
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.1,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.01,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.001,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.0001,	0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.1,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.01,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.001,		0],
+		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.0001,		0],
+		
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.1,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.01,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.001,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.0001,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.1,		4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.01,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.001,	4],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.0001,	4],
+		
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.1,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.01,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.001,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.0001,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.1,		8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.01,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.001,	8],
+		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.0001,	8]
+	]
+	
+	for test_params in test_parameters_matrix:
+		train_agent(
+			environment,
+			network_generator,
+			
+			qvalue_approx_method=test_params[0],
+			use_per=test_params[1],
+			learning_rate=test_params[2],
+			multi_qlearn_networks=test_params[3],
+			
+			render_frames=False,
+			show_plots=False,
+			episodes=250
+		)
+	
 	train_agent(
 		environment,
 		network_generator,
