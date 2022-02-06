@@ -50,8 +50,8 @@ def main():
 			target_update=500,
 			train_batch_size=128,
 			replay_memory_size=250000,
-			qvalue_approx_method=QValueApproximationMethod.MULTI_Q_LEARNING,
-			use_per=True,
+			qvalue_approx_method=QValueApproximationMethod.STANDARD,
+			use_per=False,
 			multi_q_learn_networks=8
 		)
 		trainer.train()

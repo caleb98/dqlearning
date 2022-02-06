@@ -16,10 +16,10 @@ from memory import ReplayMemory
 TRAIN_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def display_plots(reward_history=None, loss_history=None):
+def display_plots(reward_history=None, loss_history=None, preds_history=None):
 	plt.clf()
 	if reward_history is not None:
-		ax1 = plt.subplot(1, 2, 1)
+		ax1 = plt.subplot(1, 3, 1)
 		ax1.set_title("Training...")
 		ax1.set_xlabel("Episode")
 		ax1.set_ylabel("Reward")
@@ -32,11 +32,18 @@ def display_plots(reward_history=None, loss_history=None):
 			plt.plot(means.numpy())
 	
 	if loss_history is not None:
-		ax2 = plt.subplot(1, 2, 2)
+		ax2 = plt.subplot(1, 3, 2)
 		ax2.set_title("Losses")
 		ax2.set_xlabel("Episode")
 		ax2.set_ylabel("Loss")
 		ax2.plot(loss_history, 'r')
+
+	if preds_history is not None:
+		ax3 = plt.subplot(1, 3, 3)
+		ax3.set_title("Q Predictions")
+		ax3.set_xlabel("Episode")
+		ax3.set_ylabel("Predicted Reward")
+		ax3.plot(preds_history)
 	
 	plt.pause(0.01)
 
@@ -168,7 +175,8 @@ class Trainer:
 		# Create replay memory and other data for training
 		training_step = 0
 		reward_history = []  # Total reward per episode
-		loss_history = []  # Average loss per episode
+		loss_history = []  # Average loss per tra
+		predicted_reward_history = []  # Average predicted reward
 		
 		if self.show_plots:
 			plt.ion()
@@ -181,6 +189,7 @@ class Trainer:
 			state = self.env_interface.get_state()
 			episode_reward = 0
 			step_losses = []
+			step_preds = []
 			
 			# Run the episode
 			while True:
@@ -221,8 +230,9 @@ class Trainer:
 				))
 				
 				# Optimize the model
-				loss = self.optimize_model()
+				loss, preds = self.optimize_model()
 				step_losses.append(loss)
+				step_preds.append(preds)
 				
 				# Update the training step
 				state = next_state
@@ -230,7 +240,7 @@ class Trainer:
 				
 				# Check if the target network should be updated
 				if self.qvalue_approx_method != QValueApproximationMethod.MULTI_Q_LEARNING and \
-						training_step % self.target_update == 0:
+					training_step % self.target_update == 0:
 					print("Updating target network.")
 					self.update_target_network()
 				
@@ -239,8 +249,8 @@ class Trainer:
 					break
 		
 			# Update PER beta if necessary
-			# if self.use_per:
-			# 	self.replay_memory.step_episode()
+			if self.use_per:
+				self.replay_memory.step_episode()
 		
 			# Print training information
 			print(f"Episode {episode} "
@@ -250,12 +260,17 @@ class Trainer:
 			
 			reward_history.append(episode_reward)
 			loss_history.append(np.average(np.array(step_losses)))
+			predicted_reward_history.append(np.average(np.array([val for val in step_preds if val is not None])))
 			
 			if self.show_plots:
 				loss_history_np = np.array(loss_history)
 				max_val = loss_history_np.max()
 				loss_history_np = np.where(loss_history_np < 0, max_val, loss_history_np)
-				display_plots(reward_history, loss_history_np)
+
+				preds_history_np = np.array(predicted_reward_history)
+				min_val = preds_history_np.min()
+				preds_history_np = np.where(preds_history_np is None, min_val, preds_history_np)
+				display_plots(reward_history, loss_history_np, preds_history_np)
 			
 		if self.show_plots:
 			plt.ioff()
@@ -267,7 +282,7 @@ class Trainer:
 	def optimize_model(self):
 		# Check that there are enough entries in replay memory to train
 		if len(self.replay_memory) < self.train_batch_size:
-			return -1
+			return -1, None
 		
 		# Load a random sample of transitions from memory
 		if self.use_per:
@@ -359,5 +374,4 @@ class Trainer:
 		
 		self.optimizer.step()
 		
-		return loss.item()
-	
+		return loss.item(), expected_q_values.mean().item()
