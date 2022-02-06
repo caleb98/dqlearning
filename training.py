@@ -95,9 +95,12 @@ class EnvironmentInterface:
 
 
 class QValueApproximationMethod(Enum):
-	STANDARD = 1
-	DOUBLE_Q_LEARNING = 2
-	MULTI_Q_LEARNING = 3
+	STANDARD = "Standard"
+	DOUBLE_Q_LEARNING = "DoubleDQN"
+	MULTI_Q_LEARNING = "MultiQ"
+	
+	def __str__(self):
+		return self.value
 
 
 class Trainer:
@@ -115,7 +118,7 @@ class Trainer:
 		episodes: int = 500,
 		replay_memory_size: int = 10000,
 		qvalue_approx_method: QValueApproximationMethod = QValueApproximationMethod.STANDARD,
-		multi_q_learn_networks: int = 2,
+		multi_qlearn_networks: int = 2,
 		use_per: bool = False,
 		clamp_grads: bool = True,
 		show_plots: bool = True,
@@ -154,7 +157,7 @@ class Trainer:
 			self.mql_networks = []
 			self.mql_optimizers = []
 			self.active_network_index = 0
-			for i in range(multi_q_learn_networks):
+			for i in range(multi_qlearn_networks):
 				network = self.agent.network_generator()
 				self.mql_networks.append(network)
 				self.mql_optimizers.append(optim.Adam(network.parameters(), lr=learning_rate))
@@ -275,6 +278,16 @@ class Trainer:
 		if self.show_plots:
 			plt.ioff()
 			plt.show()  # Use show here to block until the user closes it
+		
+		loss_history_np = np.array(loss_history)
+		max_val = loss_history_np.max()
+		loss_history_np = np.where(loss_history_np < 0, max_val, loss_history_np)
+		
+		preds_history_np = np.array(predicted_reward_history)
+		min_val = preds_history_np.min()
+		preds_history_np = np.where(preds_history_np is None, min_val, preds_history_np)
+		
+		return np.array(reward_history), loss_history_np, preds_history_np
 		
 	def update_target_network(self):
 		self.target.load_state_dict(self.agent.dqn.state_dict())
