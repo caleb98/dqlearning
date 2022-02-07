@@ -1,5 +1,6 @@
 import math
 import random
+import string
 from enum import Enum
 from typing import Callable
 
@@ -122,6 +123,8 @@ class Trainer:
 		use_per: bool = False,
 		clamp_grads: bool = True,
 		show_plots: bool = True,
+		save_file: string = None,
+		save_eps: int = 10
 	):
 		self.agent = agent
 		self.env_interface = env_interface
@@ -145,6 +148,9 @@ class Trainer:
 		self.optimizer = optim.Adam(self.agent.dqn.parameters(), lr=learning_rate)
 		
 		self.show_plots = show_plots
+		
+		self.save_file = save_file
+		self.save_eps = save_eps
 		
 		self.state = None
 		
@@ -263,7 +269,12 @@ class Trainer:
 			
 			reward_history.append(episode_reward)
 			loss_history.append(np.average(np.array(step_losses)))
-			predicted_reward_history.append(np.average(np.array([val for val in step_preds if val is not None])))
+			predicted_reward_history.append(np.average(np.array([val for val in step_preds if val is not None])))\
+			
+			# Save the network on the requested steps
+			if episode != 0 and episode % self.save_eps == 0:
+				print(f"Saving model backup for episode {episode}.")
+				self.agent.save_to_disk(f"{self.save_file}_episode{episode}.mdl")
 			
 			if self.show_plots:
 				loss_history_np = np.array(loss_history)

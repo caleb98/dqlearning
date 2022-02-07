@@ -72,6 +72,8 @@ def main():
 		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.0001,	8]
 	]
 	
+	train_current = 1
+	train_total = len(test_parameters_matrix)
 	for test_params in test_parameters_matrix:
 		train_agent(
 			environment,
@@ -86,17 +88,9 @@ def main():
 			show_plots=False,
 			episodes=250
 		)
-	
-	train_agent(
-		environment,
-		network_generator,
-		qvalue_approx_method=QValueApproximationMethod.STANDARD,
-		use_per=False,
-		multi_qlearn_networks=8,
-		render_frames=False,
-		show_plots=False,
-		episodes=10
-	)
+		
+		print(f"Finished training {train_current} of {train_total}.")
+		train_current += 1
 
 
 def train_agent(environment_name, network_generator, qvalue_approx_method: QValueApproximationMethod, use_per: bool,
@@ -128,7 +122,7 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 		os.mkdir(agent_dir)
 		
 	# Create the actual agent file string
-	agent_file = os.path.join(agent_dir, "agent.mdl")
+	agent_file = os.path.join(agent_dir, "agent")
 	
 	# If the agent already exists, load it
 	if os.path.exists(agent_file):
@@ -155,7 +149,8 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 		qvalue_approx_method=qvalue_approx_method,
 		use_per=use_per,
 		multi_qlearn_networks=multi_qlearn_networks,
-		show_plots=show_plots
+		show_plots=show_plots,
+		save_file=agent_file
 	)
 	
 	rewards, losses, preds = trainer.train()
@@ -166,7 +161,7 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 	if not os.path.isdir(agent_dir):
 		os.mkdir(agent_dir)
 	
-	agent.save_to_disk(agent_file)
+	agent.save_to_disk(agent_file + ".mdl")
 	print("Training complete.")
 	
 	return agent
