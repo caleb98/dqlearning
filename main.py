@@ -12,7 +12,7 @@ from training import EnvironmentInterface
 from training import QValueApproximationMethod
 from training import Trainer
 
-AGENTS_DIR = "./agents"
+AGENTS_DIR = ".\\agents"
 
 
 def main():
@@ -43,7 +43,7 @@ def main():
 		[QValueApproximationMethod.STANDARD, True,  0.01, 			0],
 		[QValueApproximationMethod.STANDARD, True,  0.001, 			0],
 		[QValueApproximationMethod.STANDARD, True,  0.0001, 		0],
-		
+
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.1,		0],
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.01,		0],
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, False, 0.001,		0],
@@ -52,7 +52,7 @@ def main():
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.01,		0],
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.001,		0],
 		[QValueApproximationMethod.DOUBLE_Q_LEARNING, True, 0.0001,		0],
-		
+
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.1,	4],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.01,	4],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.001,	4],
@@ -61,7 +61,7 @@ def main():
 		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.01,	4],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.001,	4],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.0001,	4],
-		
+
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.1,	8],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.01,	8],
 		[QValueApproximationMethod.MULTI_Q_LEARNING, False, 0.001,	8],
@@ -72,10 +72,16 @@ def main():
 		[QValueApproximationMethod.MULTI_Q_LEARNING, True, 0.0001,	8]
 	]
 	
+	# Train and evaluate the models
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	models = []
+	model_eval_data = np.zeros(len(test_parameters_matrix))
 	train_current = 1
 	train_total = len(test_parameters_matrix)
 	for test_params in test_parameters_matrix:
-		train_agent(
+		
+		# Train the agent
+		agent = train_agent(
 			environment,
 			network_generator,
 			
@@ -84,14 +90,62 @@ def main():
 			learning_rate=test_params[2],
 			multi_qlearn_networks=test_params[3],
 			
+			target_update=500,  # 100 for cartpole, 500 for lunar lander
+			
 			render_frames=False,
 			show_plots=False,
 			episodes=250
 		)
 		
 		print(f"Finished training {train_current} of {train_total}.")
+		
+		# Evaluate the model
+		print("Evaluating model...")
+		
+		models.append(f"{test_params[0]}{test_params[3] if not test_params[3] == 0 else ''}"
+						f"{'_PER' if test_params[1] else ''}_{test_params[2]}")
+		
+		episode_rewards = np.zeros(500)
+		for episode in range(500):
+			# Reset environment and reward tracker
+			state = env.reset()
+			current_episode_reward = 0
+			
+			# Loop until episode complete
+			while True:
+				action = agent.dqn(
+					torch.tensor([state], dtype=torch.float, device=device)
+				).max(1)[1].item()
+				state, reward, done, _ = env.step(action)
+				current_episode_reward += reward
+				
+				# When episode is finished, add its reward to the rewards array
+				if done:
+					episode_rewards[episode] = current_episode_reward
+					break
+		
+		# Add this model's average episode reward value to the evaluation array
+		model_eval_data[train_current - 1] = np.average(episode_rewards)
+		
 		train_current += 1
-
+	
+	# Save the evaluation data
+	env_dir = os.path.join(
+		AGENTS_DIR,
+		environment
+	)
+	
+	if not os.path.isdir(env_dir):
+		os.mkdir(env_dir)
+	
+	np.savetxt(
+		os.path.join(env_dir, "evaluation_data.csv"),
+		model_eval_data.transpose(),
+		fmt="%.5f",
+		delimiter=",",
+		header=",".join(models)
+	)
+	
 
 def train_agent(environment_name, network_generator, qvalue_approx_method: QValueApproximationMethod, use_per: bool,
 				multi_qlearn_networks: int = 8,	render_frames: bool = True, episodes: int = 250,
@@ -122,7 +176,7 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 		os.mkdir(agent_dir)
 		
 	# Create the actual agent file string
-	agent_file = os.path.join(agent_dir, "agent")
+	agent_file = os.path.join(agent_dir, "agent.mdl")
 	
 	# If the agent already exists, load it
 	if os.path.exists(agent_file):
@@ -161,7 +215,7 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 	if not os.path.isdir(agent_dir):
 		os.mkdir(agent_dir)
 	
-	agent.save_to_disk(agent_file + ".mdl")
+	agent.save_to_disk(agent_file)
 	print("Training complete.")
 	
 	return agent
