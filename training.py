@@ -1,3 +1,7 @@
+"""
+Contains classes and functions used for training agents in OpenAI gym environments.
+"""
+
 import math
 import random
 import string
@@ -14,11 +18,17 @@ from torch.nn import functional as F
 from memory import PERMemory
 from memory import ReplayMemory
 
+# Set the training device to the GPU if possible.
 TRAIN_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def display_plots(reward_history=None, loss_history=None, preds_history=None):
+	"""Utility function for displaying and updating matplotlib plots during agent training."""
+	
+	# Clear the plot
 	plt.clf()
+	
+	# Add the reward history plot
 	if reward_history is not None:
 		ax1 = plt.subplot(1, 3, 1)
 		ax1.set_title("Training...")
@@ -26,12 +36,14 @@ def display_plots(reward_history=None, loss_history=None, preds_history=None):
 		ax1.set_ylabel("Reward")
 		ax1.plot(reward_history)
 		
+		# If we've ran for at least 100 episodes, also plot the past 100 episode mean reward
 		if len(reward_history) >= 100:
 			reward_history_tensor = torch.tensor(reward_history)
 			means = reward_history_tensor.unfold(0, 100, 1).mean(1).view(-1)
 			means = torch.cat((torch.ones(99) * reward_history_tensor.min(0)[0], means))
 			plt.plot(means.numpy())
 	
+	# Add the loss history plot
 	if loss_history is not None:
 		ax2 = plt.subplot(1, 3, 2)
 		ax2.set_title("Losses")
@@ -39,6 +51,7 @@ def display_plots(reward_history=None, loss_history=None, preds_history=None):
 		ax2.set_ylabel("Loss")
 		ax2.plot(loss_history, 'r')
 
+	# Add the prediction history plot
 	if preds_history is not None:
 		ax3 = plt.subplot(1, 3, 3)
 		ax3.set_title("Q Predictions")
@@ -50,6 +63,11 @@ def display_plots(reward_history=None, loss_history=None, preds_history=None):
 
 
 class Agent:
+	"""
+	An agent that may take actions in an environment. Contains the underlying model and functionality for action
+	selection.
+	"""
+	
 	def __init__(self, network_generator: Callable = None, filename: str = None):
 		if filename is None:
 			self.network_generator = network_generator
@@ -58,6 +76,7 @@ class Agent:
 			self.load_from_disk(filename)
 	
 	def select_action(self, state):
+		"""Uses this agent's model to select an action given the current state."""
 		return self.dqn(torch.tensor(
 			[state],
 			dtype=torch.float,
@@ -65,23 +84,41 @@ class Agent:
 		)).max(1)[1].view(1, 1)
 	
 	def save_to_disk(self, filename: str):
+		"""Save's this agent's underlying model to the given file."""
 		torch.save(self.dqn, filename)
 		
 	def load_from_disk(self, filename: str):
+		"""Loads into this agent the model in the specified file."""
 		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		self.dqn = torch.load(filename, map_location=device)
 
 
 class EnvironmentInterface:
+	"""
+	Wrapper class for for an OpenAI gym environment used to facilitate better modularity within the agent Trainer
+	class.
+	"""
+	
 	def __init__(self, environment: Env, render_frames: bool = True):
 		self.environment = environment
 		self.state = None
 		self.render_frames = render_frames
 	
 	def reset(self):
+		"""Resets the environment for a new episode."""
 		self.state = self.environment.reset()
 	
 	def step(self, action):
+		"""
+		Takes a step in the environment using the given action
+		
+		:param action: the action to take
+		:return: state, reward, done, info:
+			The new state;
+			The reward obtained for taking the action;
+			Whether the episode is finished;
+			Debug info
+		"""
 		state, reward, done, info = self.environment.step(action)
 		self.state = state
 		if self.render_frames:
@@ -89,13 +126,16 @@ class EnvironmentInterface:
 		return state, reward, done, info
 	
 	def get_state(self):
+		"""Returns the current state of the environment."""
 		return self.state
 	
 	def get_num_actions(self):
+		"""Returns the number of actions that may be takne in the environment."""
 		return self.environment.action_space.n
 
 
 class QValueApproximationMethod(Enum):
+	"""Enumeration of valid q-value approximation methods."""
 	STANDARD = "Standard"
 	DOUBLE_Q_LEARNING = "DoubleDQN"
 	MULTI_Q_LEARNING = "MultiQ"
@@ -105,6 +145,8 @@ class QValueApproximationMethod(Enum):
 
 
 class Trainer:
+	"""Manages an environmental agent and handles the training of the agent's backing network."""
+	
 	def __init__(
 		self,
 		agent: Agent,
@@ -126,6 +168,26 @@ class Trainer:
 		save_file: string = None,
 		save_eps: int = 10
 	):
+		"""
+		:param agent: The agent containing the model to be trained
+		:param env_interface: An interface to the training environment
+		:param train_batch_size: Number of transitions to sample from replay memory in each training step
+		:param discount_factor: How strongly future rewards are considered
+		:param epsilon_start: Starting value for the epsilon used in epsilon-greedy action selection
+		:param epsilon_end: Ending value for the epsilon used in epsilon-greedy action selection
+		:param epsilon_decay: Over how many training steps to decay epsilon from epsilon_start to epsilon_end
+		:param target_update: Number of training steps to update the target network after (for double dqn)
+		:param learning_rate: How strongly to update the network based on training loss
+		:param episodes: Number of episodes to run the training for
+		:param replay_memory_size: Maximum number of transitions to store in replay memory
+		:param qvalue_approx_method: The method that should be used to approximate q-values using the agent's network
+		:param multi_qlearn_networks: Number of networks to use if the qvalue_approx_method is MULTI_Q_LEARNING
+		:param use_per: Whether or not PER should be used when sampling from replay memory
+		:param clamp_grads: Whether or not to clamp network gradients during training (can prevent exploding gradient problem)
+		:param show_plots: Whether or not to display plots live during the training process.
+		:param save_file: The file to save the model to (used to make periodic backups during the training process.)
+		:param save_eps: Episode interval used to save model backups
+		"""
 		self.agent = agent
 		self.env_interface = env_interface
 		
@@ -172,8 +234,9 @@ class Trainer:
 		else:
 			self.target = self.agent.network_generator()
 			pass
-		
+	
 	def select_random_action(self):
+		"""Selects a random action for the provided environment."""
 		return torch.tensor(
 			[[random.randrange(self.env_interface.get_num_actions())]],
 			dtype=torch.long,
@@ -181,12 +244,22 @@ class Trainer:
 		)
 			
 	def train(self):
+		"""
+		Trains the agent supplied to this trainer based on the specified hyperparameters.
+		
+		:returns reward_history (ndarray), loss_history (ndarray), prediction_history (ndarray):
+			An array containing the historical reward values during training;
+			An array containing the historical network losses during training;
+			An array containing the historical q-value predictions during training
+		"""
+		
 		# Create replay memory and other data for training
 		training_step = 0
 		reward_history = []  # Total reward per episode
 		loss_history = []  # Average loss per tra
 		predicted_reward_history = []  # Average predicted reward
 		
+		# Turn on interactive mode for plots if plots are displayed
 		if self.show_plots:
 			plt.ion()
 		
@@ -267,15 +340,17 @@ class Trainer:
 				f"{f'(b = {self.replay_memory.beta:0.2f}) ' if self.use_per else ''}"
 				f"[Mem: {float(len(self.replay_memory)) / self.replay_memory.max_size() * 100:0.2f}%] ")
 			
+			# Update the historical data
 			reward_history.append(episode_reward)
 			loss_history.append(np.average(np.array(step_losses)))
-			predicted_reward_history.append(np.average(np.array([val for val in step_preds if val is not None])))\
+			predicted_reward_history.append(np.average(np.array([val for val in step_preds if val is not None])))
 			
 			# Save the network on the requested steps
 			if episode != 0 and episode % self.save_eps == 0:
 				print(f"Saving model backup for episode {episode}.")
 				self.agent.save_to_disk(f"{self.save_file}_episode{episode}.mdl")
 			
+			# Update the plots if
 			if self.show_plots:
 				loss_history_np = np.array(loss_history)
 				max_val = loss_history_np.max()
@@ -285,11 +360,13 @@ class Trainer:
 				min_val = preds_history_np.min()
 				preds_history_np = np.where(preds_history_np is None, min_val, preds_history_np)
 				display_plots(reward_history, loss_history_np, preds_history_np)
-			
+		
+		# Display the plots if requested
 		if self.show_plots:
 			plt.ioff()
 			plt.show()  # Use show here to block until the user closes it
 		
+		# Calculate the loss and prediction history
 		loss_history_np = np.array(loss_history)
 		max_val = loss_history_np.max()
 		loss_history_np = np.where(loss_history_np < 0, max_val, loss_history_np)
@@ -298,12 +375,25 @@ class Trainer:
 		min_val = preds_history_np.min()
 		preds_history_np = np.where(preds_history_np is None, min_val, preds_history_np)
 		
+		# Return the historical values throughout training (so they can be saved, graphed, etc.)
 		return np.array(reward_history), loss_history_np, preds_history_np
 		
 	def update_target_network(self):
+		"""
+		Updates the target model using the weights from the active model.
+		Only works when the q-value approximation method is set to DOUBLE_Q_LEARNING.
+		"""
 		self.target.load_state_dict(self.agent.dqn.state_dict())
 	
 	def optimize_model(self):
+		"""
+		Performs a single training step in the deep q-learning algorithm.
+		
+		This training step will only be performed if a sufficient number of training samples are present in the replay
+		memory to satisfy the training batch size.
+		Checks are made so that the training step is carried out using the appropriate q-value approximation method and
+		using PER for transition sampling if enabled.
+		"""
 		# Check that there are enough entries in replay memory to train
 		if len(self.replay_memory) < self.train_batch_size:
 			return -1, None

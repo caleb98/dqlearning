@@ -1,27 +1,36 @@
 import numpy
 
-
-# Implementation of the "sum tree" data structure described in Schaul et. al 2015.
-# This is effectively a binary heap, except nodes are not sorted in any specific
-# order. Instead, each parent node expresses the sum value of all its children.
 class SumTree:
+	"""
+	Implementation of the "sum tree" data structure described in Schaul et. al 2015.
+	This is effectively a binary heap, except nodes are not sorted in any specific
+	order. Instead, each parent node expresses the sum value of all its children.
+	"""
 	
 	def __init__(self, capacity):
+		"""
+		:param capacity: maximum number of elements that can he held
+		"""
 		self.capacity = capacity
 		self.size = 0
 		self.insert = 0
 		self.values = numpy.zeros(2 * capacity - 1)
 		self.elements = numpy.zeros(capacity, dtype=tuple)
 	
-	# Returns the max value of all the leaf nodes
 	def get_max_leaf_value(self):
+		"""Returns the max value of all the leaf nodes."""
 		start = self.capacity - 1
 		return self.values[start:].max()
 	
 	def get_total(self):
+		"""Returns the total sum of all leaf nodes."""
 		return self.values[0]
 	
 	def get(self, select_value):
+		"""
+		:param select_value: the value to select from the tree
+		:return: the element matching that value's position
+		"""
 		if select_value > self.get_total():
 			return -1, None, None
 		
@@ -54,6 +63,11 @@ class SumTree:
 		return index, self.elements[element_index], self.values[index]
 	
 	def add(self, data, value):
+		"""
+		Adds a new element to the tree with a given value.
+		:param data: element to add
+		:param value: element's value
+		"""
 		# Append data to elements array
 		self.elements[self.insert] = data
 		
@@ -70,6 +84,12 @@ class SumTree:
 			self.size += 1
 	
 	def update_value(self, index, new_value):
+		"""
+		Updates the value of an existing element in the tree
+		:param index: the index of the element to update
+		:param new_value:
+		:return:
+		"""
 		# Set the value at the index
 		change = new_value - self.values[index]
 		self.values[index] = new_value

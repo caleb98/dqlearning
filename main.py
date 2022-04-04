@@ -12,6 +12,7 @@ from training import EnvironmentInterface
 from training import QValueApproximationMethod
 from training import Trainer
 
+# The directory in which agent models should be saved.
 AGENTS_DIR = ".\\agents"
 
 
@@ -20,19 +21,23 @@ def main():
 	if not os.path.isdir(AGENTS_DIR):
 		os.mkdir(AGENTS_DIR)
 	
+	# Select and create the environment. Other OpenAI gym environments may be selected by changing the string here.
 	environment = "LunarLander-v2"
 	env = gym.make(environment)
 
+	# Get the number of possible actions that may be selected.
 	num_inputs = 1
 	for i in env.observation_space.shape:
 		num_inputs *= i
 	num_actions = env.action_space.n
 
+	# Function for generating new networks (used to create the agents for training)
 	def network_generator():
 		network = networks.LinearNetwork(num_inputs, num_actions)
 		network.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 		return network
 	
+	# Matrix of parameters for testing in the experiment
 	test_parameters_matrix = [
 		# Approximation Method,              PER,   Learning Rate   Multi Q Networks
 		[QValueApproximationMethod.STANDARD, False, 0.1, 			0],
@@ -152,7 +157,26 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 				epsilon_start: float = 1.0, epsilon_end: float = 0.01, epsilon_decay: int = 10000,
 				discount_factor: float = 0.99, learning_rate: float = 0.001, target_update: int = 500,
 				train_batch_size: int = 128, replay_memory_size: int = 250000, show_plots: bool = True):
+	"""
 	
+	:param environment_name: Environment to train an agent in
+	:param network_generator: The function used to generate the network used by the agent
+	:param qvalue_approx_method: Which q-value approximation method to use in the training process
+	:param use_per: Whether or not to use PER during training
+	:param multi_qlearn_networks: Number of networks to use if multi q-learning is enabled
+	:param render_frames: Whether or not to render the environment on the screen (disabling will result in faster training)
+	:param episodes: Number of episodes to train the agent for
+	:param epsilon_start: Starting value for epsilon in epsilon-greedy action selection
+	:param epsilon_end: Ending value for epsilon in epsilon-greedy action selection
+	:param epsilon_decay: Over how many training steps to decay epsilon from epsilon_start to epsilon_end
+	:param discount_factor: How strongly future rewards are considered
+	:param learning_rate: How strongly to update the network based on training loss
+	:param target_update: Training step interval used for updating the target network when double dqn is used
+	:param train_batch_size: Number of transitions to sample from replay memory in each training step
+	:param replay_memory_size: Maximum transitions to store in replay memory
+	:param show_plots: Whether or not to display plots during the training process
+	:return: the trained agent
+	"""
 	# Check the environment directory and make it if necessary
 	env_dir = os.path.join(
 		AGENTS_DIR,
@@ -222,9 +246,18 @@ def train_agent(environment_name, network_generator, qvalue_approx_method: QValu
 
 
 def render_videos(agent, env):
+	"""
+	Utility function for making videos to demonstrate an agent's performance during an episode.
+	
+	:param agent: the agent to use for action selection
+	:param env: the environment to run the agent in
+	"""
 	print("Running agent demonstration.")
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	
+	# Run five episodes
 	for episode in range(5):
+		# Create the writer for the video file
 		fourcc = cv2.VideoWriter_fourcc(*"XVID")
 		video = cv2.VideoWriter(f"agent{episode}.avi", fourcc, 50, (600, 400))
 		
@@ -232,7 +265,7 @@ def render_videos(agent, env):
 		while True:
 			start = time.time()
 			
-			# Render
+			# Render the step to the video file
 			pixels = env.render(mode="rgb_array")
 			pixels = cv2.cvtColor(pixels, cv2.COLOR_BGR2RGB)
 			video.write(pixels)
@@ -243,14 +276,17 @@ def render_videos(agent, env):
 			).max(1)[1].item()
 			state, reward, done, _ = env.step(action)
 			
+			# Quit if episode is finished
 			if done:
 				break
 			
 			end = time.time()
 			time.sleep(max(0.0, 0.02 - (end - start)))
 		
+		# Save the episode video
 		video.release()
 	
+	# Close the environment
 	env.close()
 			
 

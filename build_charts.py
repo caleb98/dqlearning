@@ -1,11 +1,13 @@
-import sys
+"""
+Utility script for creating the figures based on agent training data.
+"""
 
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import os
 
-
+# Setup matplotlib so that it can create LaTeX chart output.
 mpl.use("pgf")
 mpl.rcParams.update({
 	
@@ -19,6 +21,7 @@ mpl.rcParams.update({
 
 
 def figures_exist(subpath, model_dir, figure_name, *file_types):
+	"""Determines if figures already exist for a given model and for a given set of file types."""
 	for file_type in file_types:
 		if not os.path.exists(os.path.join(subpath, model_dir, figure_name + "." + file_type)):
 			return False
@@ -27,11 +30,13 @@ def figures_exist(subpath, model_dir, figure_name, *file_types):
 
 
 def save_figures(subpath, model_dir, figure_name, *file_types):
+	"""Saves a model for a given figure. Will create figures for each given file type."""
 	for file_type in file_types:
 		plt.savefig(os.path.join(subpath, model_dir, figure_name + "." + file_type), bbox_inches="tight")
 
 
 def main():
+	# The directory where agent models can be found
 	agents_dir = ".\\agents"
 	regenerate_existing = True
 	
@@ -53,17 +58,20 @@ def main():
 			
 			print(f"Generating charts for {model_dir}")
 			
+			# Create model headers
 			models.append(model_dir + "_Rewards")
 			models.append(model_dir + "_Losses")
 			models.append(model_dir + "_ValueEstimates")
 			
 			data_file = os.path.join(subpath, model_dir, "train_data.npz")
 			
+			# Load the historical training data
 			with np.load(data_file) as train_data:
 				rewards = train_data["rewards"]
 				losses = train_data["losses"]
 				preds = train_data["preds"]
 				
+				# Insert the historical data into the overall data array
 				model_data[model_num * 3] = rewards
 				model_data[model_num * 3 + 1] = losses
 				model_data[model_num * 3 + 2] = preds
@@ -125,6 +133,7 @@ def main():
 			
 			model_num += 1
 		
+		# Save a csv of the overall data for this agent
 		np.savetxt(
 			os.path.join(subpath, "data.csv"),
 			model_data.transpose(),
